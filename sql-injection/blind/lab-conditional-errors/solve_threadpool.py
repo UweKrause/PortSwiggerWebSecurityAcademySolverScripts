@@ -1,6 +1,7 @@
 import concurrent.futures
 import string
 import time
+import timeit
 from collections import defaultdict
 import random
 import requests
@@ -159,7 +160,12 @@ def get_candidates_alphanumeric():
     return string.ascii_lowercase + "0123456789" + string.ascii_uppercase
 
 
-if __name__ == '__main__':
+def main():
     candidates = get_candidates_alphanumeric()
     password = bruteforce_password(candidates)
     print(password)
+
+
+if __name__ == '__main__':
+    time_elapsed = timeit.timeit(main, number=1)
+    print(f"Execution took {time_elapsed} seconds.")  # about 95 seconds
